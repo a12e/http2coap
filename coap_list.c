@@ -10,13 +10,7 @@
 
 /* #include "coap_config.h" */
 
-#include <stdio.h>
-#include <string.h>
-
-#include "debug.h"
-#include "mem.h"
 #include "coap_list.h"
-
 
 int
 coap_insert(coap_list_t **head, coap_list_t *node) {

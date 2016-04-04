@@ -3,7 +3,7 @@ project(http2coap)
 set(CMAKE_C_STANDARD 99)
 add_definitions("-Wall -DWITH_POSIX")
 
-set(SOURCE_FILES main.c coap_client.c coap_client.h coap_list.c coap_list.h)
+set(SOURCE_FILES main.c coap_client.c coap_client.h coap_list.c coap_list.h reason_phrases.c)
 add_executable(http2coap ${SOURCE_FILES})
 
 target_link_libraries(http2coap microhttpd coap-1)

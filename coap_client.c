@@ -41,14 +41,11 @@ int resolve_address(const str *server, struct sockaddr *dst) {
     }
 
     finish:
-    fprintf(stderr, "Resolved %s: %s port %u\n", server->s,
-            inet_ntoa(((struct sockaddr_in*)dst)->sin_addr),
-            ntohs(((struct sockaddr_in*)dst)->sin_port));
     freeaddrinfo(res);
     return len;
 }
 
-coap_context_t *get_context(const char *node, const char *port)
+coap_context_t *create_coap_context(const char *node, const char *port)
 {
     coap_context_t *ctx = NULL;
     int s;
@@ -92,26 +89,44 @@ coap_context_t *get_context(const char *node, const char *port)
     return ctx;
 }
 
-static coap_pdu_t *coap_new_request(coap_context_t *ctx, method_t m, coap_list_t **options,
-                                    unsigned char *data, size_t length) {
+static int order_opts(void *a, void *b) {
+    coap_option *o1, *o2;
+
+    if (!a || !b)
+        return a < b ? -1 : 1;
+
+    o1 = (coap_option *)(((coap_list_t *)a)->data);
+    o2 = (coap_option *)(((coap_list_t *)b)->data);
+
+    return (COAP_OPTION_KEY(*o1) < COAP_OPTION_KEY(*o2))
+           ? -1
+           : (COAP_OPTION_KEY(*o1) != COAP_OPTION_KEY(*o2));
+}
+
+static unsigned char _token_data[8];
+unsigned char msgtype = COAP_MESSAGE_CON; /* usually, requests are sent confirmable */
+str the_token = { 0, _token_data };
+
+coap_pdu_t *coap_new_request(coap_context_t *ctx, method_t m, coap_list_t **options, unsigned char *data, size_t length) {
     coap_pdu_t *pdu;
     coap_list_t *opt;
 
-    if ( ! ( pdu = coap_new_pdu() ) )
+    if(!(pdu = coap_new_pdu())) {
+        fprintf(stderr, "coap_new_pdu failed\n");
         return NULL;
+    }
 
     pdu->hdr->type = msgtype;
     pdu->hdr->id = coap_new_message_id(ctx);
     pdu->hdr->code = m;
 
-    pdu->hdr->token_length = the_token.length;
-    if ( !coap_add_token(pdu, the_token.length, the_token.s)) {
-        debug("cannot add token to request\n");
+    pdu->hdr->token_length = (unsigned int)the_token.length;
+    if(!coap_add_token(pdu, the_token.length, the_token.s)) {
+        fprintf(stderr, "cannot add token to request\n");
     }
 
-    coap_show_pdu(pdu);
 
-    if (options) {
+    if(options) {
         /* sort options for delta encoding */
         LL_SORT((*options), order_opts);
 
@@ -124,11 +139,8 @@ static coap_pdu_t *coap_new_request(coap_context_t *ctx, method_t m, coap_list_t
         }
     }
 
-    if (length) {
-        if ((flags & FLAGS_BLOCK) == 0)
-            coap_add_data(pdu, length, data);
-        else
-            coap_add_block(pdu, length, data, block.num, block.szx);
+    if(length) {
+        coap_add_data(pdu, (unsigned int)length, data);
     }
 
     return pdu;
