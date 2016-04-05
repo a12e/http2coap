@@ -44,3 +44,21 @@ coap_delete_list(coap_list_t *queue) {
         coap_delete(elt);
     }
 }
+
+coap_list_t *new_option_node(unsigned short key, unsigned int length, unsigned char *data) {
+    coap_list_t *node;
+
+    node = coap_malloc(sizeof(coap_list_t) + sizeof(coap_option) + length);
+
+    if (node) {
+        coap_option *option;
+        option = (coap_option *)(node->data);
+        COAP_OPTION_KEY(*option) = key;
+        COAP_OPTION_LENGTH(*option) = length;
+        memcpy(COAP_OPTION_DATA(*option), data, length);
+    } else {
+        coap_log(LOG_DEBUG, "new_option_node: malloc\n");
+    }
+
+    return node;
+}

@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <arpa/inet.h>
 #include <coap/str.h>
+#include <coap/address.h>
 #include "coap_client.h"
 
 int resolve_address(const str *server, struct sockaddr *dst) {
@@ -45,7 +46,7 @@ int resolve_address(const str *server, struct sockaddr *dst) {
     return len;
 }
 
-coap_context_t *create_coap_context(const char *node, const char *port)
+coap_context_t *coap_create_context(const char *node, const char *port)
 {
     coap_context_t *ctx = NULL;
     int s;
@@ -53,7 +54,7 @@ coap_context_t *create_coap_context(const char *node, const char *port)
     struct addrinfo *result, *rp;
 
     memset(&hints, 0, sizeof(struct addrinfo));
-    hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
+    hints.ai_family = AF_INET;      /* Allow ONLY IPv4  */
     hints.ai_socktype = SOCK_DGRAM; /* Coap uses UDP */
     hints.ai_flags = AI_PASSIVE | AI_NUMERICHOST | AI_NUMERICSERV | AI_ALL;
 
@@ -74,9 +75,10 @@ coap_context_t *create_coap_context(const char *node, const char *port)
 
             ctx = coap_new_context(&addr);
             if (ctx) {
-                fprintf(stderr, "CoAP context created on %s port %u\n",
-                        inet_ntoa(((struct sockaddr_in*)rp->ai_addr)->sin_addr),
-                        ntohs(((struct sockaddr_in*)rp->ai_addr)->sin_port));
+                fprintf(stderr, "CoAP context created on %s:%u (using %s)\n",
+                        inet_ntoa(ctx->endpoint->addr.addr.sin.sin_addr),
+                        ntohs(ctx->endpoint->addr.addr.sin.sin_port),
+                        coap_package_version());
                 goto finish;
             }
         }
@@ -124,7 +126,6 @@ coap_pdu_t *coap_new_request(coap_context_t *ctx, method_t m, coap_list_t **opti
     if(!coap_add_token(pdu, the_token.length, the_token.s)) {
         fprintf(stderr, "cannot add token to request\n");
     }
-
 
     if(options) {
         /* sort options for delta encoding */

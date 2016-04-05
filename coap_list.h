@@ -30,4 +30,7 @@ int coap_delete(coap_list_t *node);
 /* removes all items from given queue and frees the allocated storage */
 void coap_delete_list(coap_list_t *queue);
 
+
+coap_list_t *new_option_node(unsigned short key, unsigned int length, unsigned char *data);
+
 #endif /* _COAP_LIST_H_ */
