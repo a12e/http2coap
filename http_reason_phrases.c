@@ -144,7 +144,7 @@ static const struct MHD_Reason_Block reasons[] = {
 
 
 const char *
-MHD_get_reason_phrase_for (unsigned int code)
+http_reason_phrase_for(unsigned int code)
 {
     if ( (code >= 100) &&
          (code < 600) &&

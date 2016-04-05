@@ -5,6 +5,8 @@
 #include <coap/address.h>
 #include "coap_client.h"
 
+coap_context_t *coap_context = NULL;
+
 int resolve_address(const str *server, struct sockaddr *dst) {
 
     struct addrinfo *res, *ainfo;

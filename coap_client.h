@@ -4,6 +4,8 @@
 #include <coap/coap.h>
 #include "coap_list.h"
 
+extern coap_context_t *coap_context;
+
 int resolve_address(const str *server, struct sockaddr *dst);
 coap_context_t *coap_create_context(const char *node, const char *port);
 
