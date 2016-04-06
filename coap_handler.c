@@ -38,20 +38,38 @@ void coap_response_handler(struct coap_context_t *ctx, const coap_endpoint_t *lo
             else {
                 struct MHD_Response *response = MHD_create_response_from_buffer(len, databuf, MHD_RESPMEM_MUST_COPY);
 
-                char tid_str[8];
-                snprintf(tid_str, 8, "%u", ntohs(received->hdr->id));
+                static char tid_str[8];
+                snprintf(tid_str, sizeof(tid_str), "%u", ntohs(received->hdr->id));
                 MHD_add_response_header(response, "X-CoAP-Message-Id", tid_str);
                 MHD_add_response_header(response, "X-CoAP-Response-Code", msg_code_string(received->hdr->code));
 
                 // HTTP Content-Type
-                coap_opt_t *option_string;
-                coap_option_t option;
-                coap_opt_iterator_t option_iterator;
-                if((option_string = coap_check_option(received, COAP_OPTION_CONTENT_FORMAT, &option_iterator))) {
-                    if(!coap_opt_parse(option_string, 64, &option)) {
-                        coap_abort_to_http(connection, "coap_opt_parse error");
+                const char *http_content_type;
+                int coap_content_format;
+                coap_opt_iterator_t opt_iter;
+                coap_opt_t *option;
+                coap_option_iterator_init(received, &opt_iter, COAP_OPT_ALL);
+                while((option = coap_option_next(&opt_iter))) {
+                    switch(opt_iter.type) {
+                        case COAP_OPTION_CONTENT_FORMAT:
+                            coap_content_format = (int)coap_decode_var_bytes(COAP_OPT_VALUE(option),
+                                                                             COAP_OPT_LENGTH(option));
+                            break;
+                        default:
+                            continue;
                     }
                 }
+                switch(coap_content_format) {
+                    case COAP_MEDIATYPE_TEXT_PLAIN:                 http_content_type = "text/plain"; break;
+                    case COAP_MEDIATYPE_APPLICATION_LINK_FORMAT:    http_content_type = "application/link-format"; break;
+                    case COAP_MEDIATYPE_APPLICATION_XML:            http_content_type = "application/xml"; break;
+                    case COAP_MEDIATYPE_APPLICATION_OCTET_STREAM:   http_content_type = "application/octet-stream"; break;
+                    case COAP_MEDIATYPE_APPLICATION_EXI:            http_content_type = "application/exi"; break;
+                    case COAP_MEDIATYPE_APPLICATION_JSON:           http_content_type = "application/json"; break;
+                    case COAP_MEDIATYPE_APPLICATION_CBOR:           http_content_type = "application/cbor"; break;
+                    default:                                        http_content_type = "unknown"; break;
+                }
+                MHD_add_response_header(response, MHD_HTTP_HEADER_CONTENT_TYPE, http_content_type);
 
                 // HTTP Code
                 unsigned int http_code;
@@ -70,13 +88,16 @@ void coap_response_handler(struct coap_context_t *ctx, const coap_endpoint_t *lo
                     case COAP_RESPONSE_504:         http_code = MHD_HTTP_GATEWAY_TIMEOUT;       break; /* 5.04 Gateway Timeout */
                     default:                        http_code = MHD_HTTP_INTERNAL_SERVER_ERROR; break;
                 }
+
+                // Send the response
                 MHD_queue_response(connection, http_code, response);
                 MHD_destroy_response(response);
 
                 const struct sockaddr_in *client_addr = (const struct sockaddr_in *)
                         MHD_get_connection_info(connection, MHD_CONNECTION_INFO_CLIENT_ADDRESS)->client_addr;
-                printf("HTTP %13s:%-5u <- %u %s\n", inet_ntoa(client_addr->sin_addr), ntohs(client_addr->sin_port),
-                       http_code, http_reason_phrase_for(http_code));
+                printf("HTTP %13s:%-5u <- %u %s [ %s, %zu bytes ]\n", inet_ntoa(client_addr->sin_addr),
+                       ntohs(client_addr->sin_port), http_code, http_reason_phrase_for(http_code),
+                       http_content_type, len);
             }
 
             // clear the association
