@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 #include <signal.h>
 #include <libgen.h>
+#include <sys/stat.h>
 #include "http_server.h"
 #include "coap_handler.h"
 #include "coap_client.h"
@@ -30,7 +31,10 @@ int main(int argc, char *argv[])
     int opt;
     str destination_hostname = {.length = 0, .s = NULL};
     uint16_t server_port = 8080, destination_port = COAP_DEFAULT_PORT;
-    while((opt = getopt(argc, argv, "D:Php:")) != EOF) {
+    char *endptr;
+    struct stat s;
+
+    while((opt = getopt(argc, argv, "D:P:p:f:h")) != EOF) {
         switch(opt) {
             case 'D':
                 destination_hostname.s = (unsigned char *)optarg;
@@ -38,22 +42,54 @@ int main(int argc, char *argv[])
                 resolve_address(&destination_hostname, (struct sockaddr *)&destination);
                 break;
             case 'P':
-                destination_port = (uint16_t)strtoul(optarg, (char **)NULL, 10);
+                destination_port = (uint16_t)strtoul(optarg, &endptr, 10);
+                if(*endptr != '\0') {
+                    fprintf(stderr, "error: invalid port number: %s\n", optarg);
+                    return EXIT_FAILURE;
+                }
+                break;
+            case 'p':
+                server_port = (uint16_t)strtoul(optarg, &endptr, 10);
+                if(*endptr != '\0') {
+                    fprintf(stderr, "error: invalid port number: %s\n", optarg);
+                    return EXIT_FAILURE;
+                }
+                break;
+            case 'f':
+                if(stat(optarg, &s) == -1) {
+                    if(ENOENT == errno) {
+                        /* does not exist */
+                        fprintf(stderr, "error: %s: %s\n", optarg, strerror(errno));
+                        return EXIT_FAILURE;
+                    }
+                    else {
+                        perror("stat");
+                        return EXIT_FAILURE;
+                    }
+                } else {
+                    if(S_ISDIR(s.st_mode)) {
+                        /* it's a dir */
+                        strncpy(static_files_path, optarg, 64);
+                        fprintf(stderr, "Will serve static files of directory '%s'\n", static_files_path);
+                    }
+                    else {
+                        /* exists but is no dir */
+                        fprintf(stderr, "error: %s is not a directory\n", optarg);
+                        return EXIT_FAILURE;
+                    }
+                }
                 break;
             case 'h':
-                fprintf(stderr, "usage: %s -D destination_host [-P destination_port] [-p HTTP_server_port]\n",
+                fprintf(stderr, "usage: %s -D coap_host [-P coap_port] [-p HTTP_server_port] [-f static_files_dir]\n",
                         basename(argv[0]));
                 return EXIT_SUCCESS;
-            case 'p':
-                server_port = (uint16_t)strtoul(optarg, (char **)NULL, 10);
-                break;
             default:
                 return EXIT_FAILURE;
         }
     }
 
     if(destination_hostname.s == NULL) {
-        fprintf(stderr, "Please specify the target host of the proxy with -D option\n");
+        fprintf(stderr, "error: please specify the target coap host of the proxy with the -D option\n");
         return EXIT_FAILURE;
     }
 
@@ -75,7 +111,7 @@ int main(int argc, char *argv[])
 
     start_http_server(server_port);
     if(http_daemon == NULL) {
-        fprintf(stderr, "HTTP server failed to start: %s\n", strerror(errno));
+        fprintf(stderr, "error: HTTP server failed to start: %s\n", strerror(errno));
         return EXIT_FAILURE;
     }
 

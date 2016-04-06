@@ -5,6 +5,7 @@
 #include <coap/pdu.h>
 
 extern struct MHD_Daemon *http_daemon;
+extern char static_files_path[64];
 extern struct sockaddr_in destination;
 
 void start_http_server(uint16_t port);

@@ -4,6 +4,7 @@
 #include "coap_client.h"
 
 struct MHD_Daemon *http_daemon = NULL;
+char static_files_path[64] = {};
 static int http_request_handler(void *cls, struct MHD_Connection *connection, const char *url, const char *method,
                          const char *version, const char *upload_data, size_t *upload_data_size, void **con_cls);
 // These pairs are necessary to know to which connection we need to send the HTTP response when receiving a CoAP response
@@ -46,6 +47,10 @@ static int http_request_handler(void *cls, struct MHD_Connection *connection, co
     const struct sockaddr_in *client_addr = (const struct sockaddr_in *)
             MHD_get_connection_info(connection, MHD_CONNECTION_INFO_CLIENT_ADDRESS)->client_addr;
     printf("HTTP %13s:%-5u -> %s %s\n", inet_ntoa(client_addr->sin_addr), ntohs(client_addr->sin_port), method, url);
+
+    if(static_files_path[0] != '\0') {
+        fprintf(stderr, "Need to serve file %s in dir %s\n", url, static_files_path);
+    }
 
     // Define Method
     method_t coap_method;
