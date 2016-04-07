@@ -15,7 +15,7 @@ int coap_abort_to_http(struct MHD_Connection *connection, const char *message);
 
 typedef struct {
     struct MHD_Connection *connection;
-    coap_tid_t transaction_id;
+    unsigned short message_id;
 } http_coap_pair_t;
 #define MAX_HTTP_CONNECTIONS 64
 extern http_coap_pair_t http_coap_pairs[MAX_HTTP_CONNECTIONS];

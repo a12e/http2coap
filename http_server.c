@@ -1,7 +1,11 @@
 #include <stdio.h>
 #include <arpa/inet.h>
+#include <coap/pdu.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include "http_server.h"
 #include "coap_client.h"
+#include "http_reason_phrases.h"
 
 struct MHD_Daemon *http_daemon = NULL;
 char static_files_path[64] = {};
@@ -21,11 +25,13 @@ void start_http_server(uint16_t port) {
 // Little wrapper for sending simple text responses
 int send_simple_http_response(struct MHD_Connection *connection, unsigned int status_code, const char *data) {
     struct MHD_Response *response = MHD_create_response_from_buffer(strlen(data), (void *)data, MHD_RESPMEM_PERSISTENT);
+    MHD_add_response_header(response, MHD_HTTP_HEADER_CONTENT_TYPE, "text/plain");
     int res = MHD_queue_response(connection, status_code, response);
     MHD_destroy_response(response);
     const struct sockaddr_in *client_addr = (const struct sockaddr_in *)
             MHD_get_connection_info(connection, MHD_CONNECTION_INFO_CLIENT_ADDRESS)->client_addr;
-    printf("HTTP %13s:%-5u <- %u\n", inet_ntoa(client_addr->sin_addr), ntohs(client_addr->sin_port), status_code);
+    printf("HTTP %13s:%-5u <- %u %s\n", inet_ntoa(client_addr->sin_addr), ntohs(client_addr->sin_port),
+           status_code, http_reason_phrase_for(status_code));
     return res;
 }
 
@@ -48,8 +54,34 @@ static int http_request_handler(void *cls, struct MHD_Connection *connection, co
             MHD_get_connection_info(connection, MHD_CONNECTION_INFO_CLIENT_ADDRESS)->client_addr;
     printf("HTTP %13s:%-5u -> %s %s\n", inet_ntoa(client_addr->sin_addr), ntohs(client_addr->sin_port), method, url);
 
-    if(static_files_path[0] != '\0') {
-        fprintf(stderr, "Need to serve file %s in dir %s\n", url, static_files_path);
+    if(strcmp("GET", method) == 0
+       && static_files_path[0] != '\0'
+       && strstr(url, "..") == NULL) {
+        static char file_path[255];
+        snprintf(file_path, sizeof(file_path), "%s/%s", static_files_path, url);
+
+        struct stat sbuf;
+        int fd;
+        if((fd = open(file_path, O_RDONLY)) != -1) {
+            if(fstat(fd, &sbuf) != 0) {
+                close(fd);
+            }
+            else {
+                if(S_ISDIR(sbuf.st_mode)) {
+                    /* it's a dir */
+                    fprintf(stderr, "'%s' is a directory\n", file_path);
+                }
+                else {
+                    struct MHD_Response *response = MHD_create_response_from_fd(sbuf.st_size, fd);
+                    int result = MHD_queue_response(connection, MHD_HTTP_OK, response);
+                    MHD_destroy_response(response);
+                    printf("HTTP %13s:%-5u <- %u %s [ static file %s, %zu bytes ]\n", inet_ntoa(client_addr->sin_addr),
+                           ntohs(client_addr->sin_port), MHD_HTTP_OK, http_reason_phrase_for(MHD_HTTP_OK),
+                           file_path, sbuf.st_size);
+                    return result;
+                }
+            }
+        }
     }
 
     // Define Method
@@ -89,7 +121,7 @@ static int http_request_handler(void *cls, struct MHD_Connection *connection, co
     // Create packet
     coap_pdu_t *pdu;
     if(!(pdu = coap_new_request(coap_context, coap_method, &options_list, NULL, 0)))
-        coap_abort_to_http(connection, "coap_new_request failed");
+        coap_abort_to_http(connection, "coap_new_request: request creation failed\n");
 
     // Create destination address
     coap_address_t destination_address;
@@ -102,16 +134,14 @@ static int http_request_handler(void *cls, struct MHD_Connection *connection, co
     coap_show_pdu(pdu);
 
     // Send the message to the queue
-    coap_tid_t transaction_id;
-    if((transaction_id = coap_send_confirmed(coap_context, coap_context->endpoint, &destination_address, pdu))
-       == COAP_INVALID_TID)
-        return coap_abort_to_http(connection, "coap_send_confirmed failed");
+    if(coap_send_confirmed(coap_context, coap_context->endpoint, &destination_address, pdu) == COAP_INVALID_TID)
+        return coap_abort_to_http(connection, "coap_send_confirmed: could not send CoAP message\n");
 
     // Keep a trace of this HTTP connection so we can send the response later
     for(int i = 0; i < MAX_HTTP_CONNECTIONS; i++) {
         if(http_coap_pairs[i].connection == NULL) {
             http_coap_pairs[i].connection = connection;
-            http_coap_pairs[i].transaction_id = transaction_id;
+            http_coap_pairs[i].message_id = pdu->hdr->id;
             break;
         }
     }
@@ -133,7 +163,7 @@ static int http_request_handler(void *cls, struct MHD_Connection *connection, co
         next_pdu = coap_peek_next(coap_context);
 
         coap_ticks(&now);
-        while (next_pdu && next_pdu->t <= now - coap_context->sendqueue_basetime) {
+        while(next_pdu && next_pdu->t <= now - coap_context->sendqueue_basetime) {
             printf("COAP %13s:%-5u <- (retransmit) ",
                    inet_ntoa((&destination_address.addr.sin)->sin_addr),
                    ntohs((&destination_address.addr.sin)->sin_port));
@@ -156,6 +186,7 @@ static int http_request_handler(void *cls, struct MHD_Connection *connection, co
         else if(result > 0) {  /* read from socket */
             if(FD_ISSET(coap_context->sockfd, &readfds)) {
                 coap_read(coap_context);       /* read received data */
+                break; // we received a response, so we quit this send loop
             }
             else {
                 fprintf(stderr, "not reading since not the right socket\n");
@@ -165,8 +196,7 @@ static int http_request_handler(void *cls, struct MHD_Connection *connection, co
             fprintf(stderr, "select timeout\n");
             coap_ticks(&now);
             if(max_wait <= now) {
-                fprintf(stderr, "TIMEOUT\n");
-                break;
+                return coap_abort_to_http(connection, "CoAP service took too long to respond\n");
             }
         }
     }

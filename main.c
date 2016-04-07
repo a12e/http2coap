@@ -69,7 +69,8 @@ int main(int argc, char *argv[])
                 } else {
                     if(S_ISDIR(s.st_mode)) {
                         /* it's a dir */
-                        strncpy(static_files_path, optarg, 64);
+                        strncpy(static_files_path, optarg, 63);
+                        static_files_path[63] = '\0';
                         fprintf(stderr, "Will serve static files of directory '%s'\n", static_files_path);
                     }
                     else {
