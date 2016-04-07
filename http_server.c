@@ -54,6 +54,7 @@ static int http_request_handler(void *cls, struct MHD_Connection *connection, co
             MHD_get_connection_info(connection, MHD_CONNECTION_INFO_CLIENT_ADDRESS)->client_addr;
     printf("HTTP %13s:%-5u -> %s %s\n", inet_ntoa(client_addr->sin_addr), ntohs(client_addr->sin_port), method, url);
 
+    // Send static file when URL matches any
     if(strcmp("GET", method) == 0
        && static_files_path[0] != '\0'
        && strstr(url, "..") == NULL) {
@@ -73,6 +74,19 @@ static int http_request_handler(void *cls, struct MHD_Connection *connection, co
                 }
                 else {
                     struct MHD_Response *response = MHD_create_response_from_fd(sbuf.st_size, fd);
+
+                    char *file_extension = strrchr(file_path, '.');
+                    if(file_extension != NULL) {
+                        if(strcmp(file_extension, ".html") == 0)
+                            MHD_add_response_header(response, MHD_HTTP_HEADER_CONTENT_TYPE, "text/html");
+                        else if(strcmp(file_extension, ".js") == 0)
+                            MHD_add_response_header(response, MHD_HTTP_HEADER_CONTENT_TYPE, "application/javascript");
+                        else if(strcmp(file_extension, ".jpg") == 0)
+                            MHD_add_response_header(response, MHD_HTTP_HEADER_CONTENT_TYPE, "image/jpg");
+                        else if(strcmp(file_extension, ".png") == 0)
+                            MHD_add_response_header(response, MHD_HTTP_HEADER_CONTENT_TYPE, "image/png");
+                    }
+
                     int result = MHD_queue_response(connection, MHD_HTTP_OK, response);
                     MHD_destroy_response(response);
                     printf("HTTP %13s:%-5u <- %u %s [ static file %s, %zu bytes ]\n", inet_ntoa(client_addr->sin_addr),
